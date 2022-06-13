@@ -1,0 +1,320 @@
+---
+title: "ACTIVIDAD TRABAJO"
+author: "sergio carrero"
+date: '2022-04-27'
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(spatialreg) ## Libreria que permite utilizar datos espaciales
+library(spdep) ## libreria de dependencia espacial, para crear matriz de pesos espaciales a partir de contiguidades de poligonos
+library(ape) ## lee, escribir, trazar y manipular arboles filogeneticos para hacer analisis comparativo
+library(sp) ## Clases y metodos para datos espciales y modelo 2D Y 3D.
+library(readxl)
+library(psych) #
+library(openxlsx)
+library(ggplot2) # generar graficos
+library(dplyr)
+```
+
+## Carga de datos
+
+```{r}
+XPABLO_2_ <- read_excel("~/Computacion estadistica/Clase 4/XPABLO (2).xlsx")
+View(XPABLO_2_)
+
+```
+
+## Modelo de regresion simple (Cuestionarlo)
+
+```{r}
+
+names(XPABLO_2_)
+```
+
+## Redefiniendo df
+
+```{r}
+df <- XPABLO_2_[-c(15,16,17,18,19)]
+names(df)
+```
+
+## Aca trabajaremos la relacion Mg/Cu
+
+```{r}
+model_1 <- lm(Mg ~ Cu, data = df) 
+summary(model_1)
+```
+
+$$Y_{Mg} = 0.63 + 0.285X_{Cu}$$
+## Valor p ≤ α: Los datos no siguen una distribución normal (Rechaza H0) Si el valor p es menor que o igual al nivel de significancia, la decisión es rechazar la hipótesis nula y concluir que sus datos no siguen una distribución normal. Valor p > α: Usted no puede concluir que los datos no siguen una distribución normal (No puede rechazar H0). Si el valor p es mayor que el nivel de significancia, la decisión es que no se puede rechazar la hipótesis nula. Usted no tiene suficiente evidencia para concluir que los datos no siguen una distribución normal.
+
+##Preliminarmente el p-valor: <0.05 hay dependencia espacial al realizar el primer modelo podemos observar que el valor es de 0,2785 y podemos inferir que hay dependencia espacial sin embargo de nada sirve analisis el r2 debe estar entre 0,7-0,75. Donde si el valor esta cercano a cero es que el modelo menos ajustado se encuentra y entre mas cercano este a 1 esta mejor ajustado. Es por esto que este modelo es invalido. 
+```{r}
+ggplot(df, aes(y = Mg, x = Cu)) +
+  geom_point()+
+  geom_smooth(method='lm', se = F)
+```
+
+## Filtrado Mg > 5
+
+```{r}
+df_2 <- df |>
+  filter(Cu <= 8)
+df_2
+```
+
+```{r}
+model_2 <- lm(Mg ~ Cu, data = df_2) 
+summary(model_2)
+```
+$$Y_{Mg} = 0.495 + 0.32X_{Cu}$$
+## r2: 0,27 no es el valor ideal para identificar un buen modelo ajustado y el p-valor <0 hay dependencia especial.
+```{r}
+ggplot(df_2, aes(y = Mg, x = Cu)) +
+  geom_point()+
+  geom_smooth(method='lm', se = F)
+```
+
+## 
+
+```{r}
+res_2 <- model_2$residuals
+hist(res_2)
+```
+
+## Sin valor absoluto (Con valores negativos)
+```{r}
+res_2 <- model_2$residuals
+
+ggplot(df_2, aes(Long, Lat))+
+  geom_point(size = res_2)
+```
+## Entre mas grande el punto mas se desvia del valor supuesto o esperado, tambien se desea tener una correcta magnitud y direccionalidad. En este caso podemos ver que en la longitud -72,50 y -72.45 y latitud 8.2 y 8.3 hay mayor cantidad de datos alejados de los esperados.
+
+## Con correción
+
+```{r}
+ggplot(df_2, aes(Long, Lat))+
+  geom_point(size = abs(res_2))
+```
+
+```{r}
+groups_col <- cut(res_2, breaks = 7)
+#color <- 
+ggplot(df_2, aes(Long, Lat, color = groups_col))+
+  geom_point(size = 3)
+```
+## En este grafica pretendiamos la mayor cantidad de rangos de los residuales, donde la mayoria de los datos estan entre -0.535 a 0.419. 
+
+## Moran Index para residuales 
+
+```{r}
+matriz_dist <- as.matrix(dist(cbind(x = df_2$Long, y = df_2$Lat)))
+
+dim(matriz_dist)
+```
+
+```{r}
+m_dist_inv <- 1/matriz_dist
+m_dist_inv[is.infinite(m_dist_inv)] <- 0
+diag(m_dist_inv) <- 0
+m_dist_inv
+```
+
+```{r}
+Moran.I(res_2, m_dist_inv) 
+```
+## el p-valor <0.05 hay dependencia especial.
+
+## Modelo de regresión multiple
+
+```{r}
+model_3 <- lm(Mg ~ Cu + CICE, data = df)
+summary(model_3)
+```
+## r2: 0,51 aunque NO es el valor ideal para identificar un buen modelo ajustado y el p-valor <0.05 hay dependencia especial, vemos que preliminarmente se ha mejorado su ajuste.
+$$Y_{Mg} = -0.295 + 0.187X_{Cu} + 0.13z$$
+
+```{r}
+res_3 <- model_3$residuals
+```
+
+## Moran Index para residuales model 3
+
+```{r}
+matriz_dist <- as.matrix(dist(cbind(x = df$Long, y = df$Lat)))
+
+dim(matriz_dist)
+```
+
+```{r}
+m_dist_inv <- 1/matriz_dist
+m_dist_inv[is.infinite(m_dist_inv)] <- 0
+diag(m_dist_inv) <- 0
+m_dist_inv
+```
+
+```{r}
+Moran.I(res_3, m_dist_inv) 
+```
+##  el p-valor <0.05 hay dependencia especial.
+
+```{r}
+model_4 <- lm(MO ~ Ca + Long + Lat + I(Long**2) + I(Lat**2), data = df) #datos georrefenciados
+summary(model_4)
+```
+## r2: 0,25 NO es el valor ideal para identificar un buen modelo ajustado y el p-valor <0.05 hay dependencia especial, vemos que preliminarmente el modelo es menos ajustado en cuanto a la relación anterior y por tanto menos confiable.
+```{r}
+res_4 <- model_4$residuals
+shapiro.test(res_4)
+plot(res_4, pch = 16)
+Moran.I(res_4, m_dist_inv) 
+```
+
+```{r}
+groups_col <- cut(res_4, breaks = 7)
+ggplot(df, aes(Long, Lat, color = groups_col))+
+  geom_point(size = 3)
+```
+
+## K
+
+**Trabajar con las demás variables**
+
+```{r}
+model_1 <- lm(K ~ Fe, data = df) 
+summary(model_1)
+```
+## r2: 0,0056 NO es el valor ideal para identificar un buen modelo ajustado y el p-valor <0.13 aunque es mayor que 0,05 no se puede inferir con 100% de confiabilidad que NO hay dependencia especial es decir habria independencia en este conjunto de datos, aunque vemos que preliminarmente el modelo es menos ajustado en cuanto a la relación anterior y por tanto menos confiable al ver que el r2 no esta en el rango optimo de 0,7-0,75.
+$$Y_{K} = 2.476e-01 + 3.983e-05_{Fe}$$
+
+```{r}
+ggplot(df, aes(y = K, x = Fe)) +
+  geom_point()+
+  geom_smooth(method='lm', se = F)
+```
+
+## Filtrado Fe > 1000
+
+```{r}
+df_2 <- df |>
+  filter(Fe <= 1000)
+df_2
+```
+
+```{r}
+model_2 <- lm(K ~ Fe, data = df_2) 
+summary(model_2)
+```
+## r2: 0,011 NO es el valor ideal para identificar un buen modelo ajustado y el p-valor <0.02 hay dependencia especial, vemos que preliminarmente el modelo es mucho menos ajustado en cuanto a la relación anterior y por tanto menos confiable.
+```{r}
+ggplot(df_2, aes(y = K, x = Fe)) +
+  geom_point()+
+  geom_smooth(method='lm', se = F)
+```
+
+## 
+
+```{r}
+res_2 <- model_2$residuals
+hist(res_2)
+```
+
+## Sin valor absoluto (Con valores negativos)
+```{r}
+res_2 <- model_2$residuals
+
+ggplot(df_2, aes(Long, Lat))+
+  geom_point(size = res_2)
+```
+## En esta grafica podemos ver q los datos estan mucho menos desviados del valor supuesto o esperado cumpliendo en mejor medida la magnitud y direccionalidad.
+
+## Con correción
+
+```{r}
+ggplot(df_2, aes(Long, Lat))+
+  geom_point(size = abs(res_2))
+```
+
+```{r}
+groups_col <- cut(res_2, breaks = 7)
+#color <- 
+ggplot(df_2, aes(Long, Lat, color = groups_col))+
+  geom_point(size = 3)
+```
+
+## Moran Index para residuales 
+
+```{r}
+matriz_dist <- as.matrix(dist(cbind(x = df_2$Long, y = df_2$Lat)))
+
+dim(matriz_dist)
+```
+
+```{r}
+m_dist_inv <- 1/matriz_dist
+m_dist_inv[is.infinite(m_dist_inv)] <- 0
+diag(m_dist_inv) <- 0
+m_dist_inv
+```
+
+```{r}
+Moran.I(res_2, m_dist_inv) 
+```
+## Si el p-valor <0.05 hay dependencia especial.
+
+## Modelo de regresión multiple
+
+```{r}
+model_3 <- lm(K ~ Fe + CICE, data = df)
+summary(model_3)
+```
+## r2: 0,32 NO es el valor ideal para identificar un buen modelo ajustado y el p-valor <0.05 hay dependencia especial, vemos que preliminarmente el modelo esta mucho menos ajustado en cuanto a la relación anterior y por tanto menos confiable.
+$$Y_{MO} = 3.979e-02 + 5.668e-05X_{Fe} + 1.831e-02z$$
+
+```{r}
+res_3 <- model_3$residuals
+```
+
+## Moran Index para residuales model 3
+
+```{r}
+matriz_dist <- as.matrix(dist(cbind(x = df$Long, y = df$Lat)))
+
+dim(matriz_dist)
+```
+
+```{r}
+m_dist_inv <- 1/matriz_dist
+m_dist_inv[is.infinite(m_dist_inv)] <- 0
+diag(m_dist_inv) <- 0
+m_dist_inv
+```
+
+```{r}
+Moran.I(res_3, m_dist_inv) 
+```
+# p valor hay dependencia espacial
+
+```{r}
+model_4 <- lm(K ~ Fe + Long + Lat + I(Long**2) + I(Lat**2), data = df) #datos georrefenciados
+summary(model_4)
+```
+
+```{r}
+res_4 <- model_4$residuals
+shapiro.test(res_4)
+plot(res_4, pch = 16)
+Moran.I(res_4, m_dist_inv) 
+```
+
+```{r}
+groups_col <- cut(res_4, breaks = 5)
+ggplot(df, aes(Long, Lat, color = groups_col))+
+  geom_point(size = 3)
+```
